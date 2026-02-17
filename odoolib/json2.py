@@ -1,5 +1,6 @@
 import logging
 import httpx
+import time
 
 from http import HTTPStatus
 
@@ -7,6 +8,14 @@ from .tools import AuthenticationError, RemoteModel, _getChildLogger
 
 _logger = logging.getLogger(__name__)
 DEFAULT_TIMEOUT = 60
+
+
+def json2_callback_fire(call_name, start_time, result):
+    """
+    This method is intended to be overwritten.
+    A use-case is OdooLocust package which needs to fire a callback after each request to update the Locust statistics
+    """
+    return True
 
 
 class JsonModel(RemoteModel):
@@ -42,13 +51,16 @@ class JsonModel(RemoteModel):
                     else:
                         _logger.warning(f"Method {method} called with too many arguments: {args}")
 
+            start = time.time()
             result = httpx.post(
                 self._url(method),
                 headers=self.connection.bearer_header,
                 json=data,
                 timeout=DEFAULT_TIMEOUT,
+                cookies=self.connection.cookies,
             )
 
+            json2_callback_fire(self._call_name(method), start, result)
             if result.status_code == HTTPStatus.UNAUTHORIZED:
                 raise AuthenticationError("Authentication failed. Please check your API key.")
             if result.status_code == 422:
@@ -61,7 +73,7 @@ class JsonModel(RemoteModel):
     def _introspect(self):
         if not self.methods:
             url = f"{self.connection.connector.url.removesuffix('/json/2/')}/doc-bearer/{self.model_name}.json"
-            response = httpx.get(url, headers=self.connection.bearer_header)
+            response = httpx.get(url, headers=self.connection.bearer_header, cookies=self.connection.cookies, timeout=DEFAULT_TIMEOUT)
             response.raise_for_status()
             m = response.json().get('methods', {})
             self.methods = {k: tuple(m[k]['parameters'].keys()) for k in m.keys()}
@@ -78,6 +90,12 @@ class JsonModel(RemoteModel):
         Returns the URL of the Odoo server.
         """
         return f"{self.connection.connector.url}{self.model_name}/{method}"
+    
+    def _call_name(self, method):
+        """
+        Call the method with the given name and arguments.
+        """
+        return f"{self.model_name}/{method}"
 
 
 class Json2Connector(object):
@@ -91,6 +109,7 @@ class Json2Connector(object):
             self.url = f'http://{hostname}:{port}/json/2/'
         else:
             self.url = f'http://{hostname}/json/2/'
+        self.callback_fire = False
 
 
 class Json2SConnector(Json2Connector):
@@ -112,6 +131,7 @@ class Json2Connection(object):
         self.database = database
         self.bearer_header = {"Authorization": f"Bearer {api_key}", 'Content-Type': 'application/json; charset=utf-8', "X-Odoo-Database": database}
         self.user_context = None
+        self.cookies = {}
 
     def get_model(self, model_name):
         return JsonModel(self, model_name)
@@ -126,3 +146,17 @@ class Json2Connection(object):
         if not self.user_context:
             self.user_context = self.get_model('res.users').context_get()
         return self.user_context
+    
+    def check_login(self, force=True):
+        """
+        Check if the connection is authenticated by trying to access the user context.
+        :param force: If True, forces the check even if the user context is already known.
+        :return: True if the connection is authenticated, False otherwise.
+        """
+        if force:
+            self.user_context = None
+        try:
+            self.get_user_context()
+            return True
+        except AuthenticationError:
+            return False

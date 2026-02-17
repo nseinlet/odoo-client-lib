@@ -1,5 +1,6 @@
 .r*
 *.py[cod]
+*.whl
 odoolib/__pycache__
 MANIFEST
 build

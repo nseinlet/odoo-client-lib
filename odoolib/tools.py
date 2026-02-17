@@ -6,14 +6,14 @@ import random
 def _getChildLogger(logger, subname):
     return logging.getLogger(logger.name + "." + subname)
 
-def json_rpc(url, fct_name, params):
+def json_rpc(url, fct_name, params, cookies={}):
     data = {
         "jsonrpc": "2.0",
         "method": fct_name,
         "params": params,
         "id": random.randint(0, 1000000000),
     }
-    result_req = httpx.post(url, json=data, headers={
+    result_req = httpx.post(url, json=data, cookies=cookies, headers={
         "Content-Type":"application/json",
     })
     result = result_req.json()

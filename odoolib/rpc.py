@@ -160,6 +160,7 @@ class Connection(object):
 
         self.set_login_info(database, login, password, user_id)
         self.user_context = None
+        self.cookies = {}
 
     def set_login_info(self, database, login, password, user_id=None):
         """
